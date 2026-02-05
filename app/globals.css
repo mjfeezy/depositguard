@@ -323,11 +323,13 @@ textarea:disabled {
    =================================== */
 
 .btn-primary {
-  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 hover:bg-primary-700 shadow-sm hover:shadow-md transition-all duration-300 active:scale-95 min-h-[44px];
+  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 hover:bg-primary-700 shadow-sm hover:shadow-md transition-all duration-300 active:scale-95;
+  min-height: 44px;
 }
 
 .btn-secondary {
-  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 transition-all duration-300 active:scale-95 min-h-[44px];
+  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 transition-all duration-300 active:scale-95;
+  min-height: 44px;
 }
 
 .btn-ghost {
@@ -373,7 +375,12 @@ textarea:disabled {
 
 /* Skip to content link */
 .skip-to-content {
-  @apply absolute top-0 left-0 bg-primary-600 text-white px-4 py-2 rounded-br-md transform -translate-y-full focus:translate-y-0 transition-transform z-50;
+  @apply absolute top-0 left-0 bg-primary-600 text-white px-4 py-2 rounded-br-md transition-transform z-50;
+  transform: translateY(-100%);
+}
+
+.skip-to-content:focus {
+  transform: translateY(0);
 }
 
 /* Screen reader only */
