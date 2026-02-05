@@ -7,6 +7,9 @@ import { Toaster, toast } from 'react-hot-toast';
 import { SkeletonLetter, Spinner } from '@/components/LoadingStates';
 import { SuccessCelebration, AnimatedCheckmark } from '@/components/SuccessCelebration';
 
+// Disable static generation since this page uses searchParams
+export const dynamic = 'force-dynamic';
+
 interface EmailData {
   subject: string;
   body: string;
