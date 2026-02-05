@@ -178,7 +178,7 @@ textarea:focus-visible {
 
 /* Button press effect */
 button:not(:disabled):active {
-  @apply scale-95;
+  transform: scale(0.95);
   transition: transform 0.1s ease-out;
 }
 
@@ -323,13 +323,21 @@ textarea:disabled {
    =================================== */
 
 .btn-primary {
-  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 hover:bg-primary-700 shadow-sm hover:shadow-md transition-all duration-300 active:scale-95;
+  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 hover:bg-primary-700 shadow-sm hover:shadow-md transition-all duration-300;
   min-height: 44px;
 }
 
+.btn-primary:active {
+  transform: scale(0.95);
+}
+
 .btn-secondary {
-  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 transition-all duration-300 active:scale-95;
+  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 transition-all duration-300;
   min-height: 44px;
+}
+
+.btn-secondary:active {
+  transform: scale(0.95);
 }
 
 .btn-ghost {
