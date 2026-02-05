@@ -6,6 +6,9 @@ import { formatCurrency } from '@/lib/rules';
 import { getStateName } from '@/lib/stateRules';
 import { SkeletonCard, Spinner } from '@/components/LoadingStates';
 
+// Disable static generation since this page uses searchParams
+export const dynamic = 'force-dynamic';
+
 interface CaseData {
   id: string;
   state: string;
