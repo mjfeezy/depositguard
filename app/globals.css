@@ -323,8 +323,13 @@ textarea:disabled {
    =================================== */
 
 .btn-primary {
-  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 hover:bg-primary-700 shadow-sm hover:shadow-md transition-all duration-300;
+  @apply px-6 py-3 text-base font-semibold rounded-md text-white bg-primary-600 shadow-sm transition-all duration-300;
   min-height: 44px;
+}
+
+.btn-primary:hover {
+  background-color: #1d4ed8; /* primary-700 */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
 }
 
 .btn-primary:active {
@@ -332,8 +337,12 @@ textarea:disabled {
 }
 
 .btn-secondary {
-  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 transition-all duration-300;
+  @apply px-6 py-3 text-base font-medium rounded-md border-2 border-neutral-300 bg-white text-neutral-700 transition-all duration-300;
   min-height: 44px;
+}
+
+.btn-secondary:hover {
+  background-color: #f9fafb; /* neutral-50 */
 }
 
 .btn-secondary:active {
@@ -341,7 +350,11 @@ textarea:disabled {
 }
 
 .btn-ghost {
-  @apply px-4 py-2 text-base font-medium text-primary-600 hover:bg-primary-50 rounded-md transition-colors duration-300;
+  @apply px-4 py-2 text-base font-medium text-primary-600 rounded-md transition-colors duration-300;
+}
+
+.btn-ghost:hover {
+  background-color: #eff6ff; /* primary-50 */
 }
 
 /* ===================================
@@ -415,7 +428,9 @@ textarea:disabled {
 
 /* Glass morphism */
 .glass {
-  @apply bg-white/80 backdrop-blur-md border border-white/20;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 /* Custom shadows */
