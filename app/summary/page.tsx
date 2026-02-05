@@ -1,13 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { formatCurrency } from '@/lib/rules';
 import { getStateName } from '@/lib/stateRules';
 import { SkeletonCard, Spinner } from '@/components/LoadingStates';
-
-// Disable static generation since this page uses searchParams
-export const dynamic = 'force-dynamic';
 
 interface CaseData {
   id: string;
@@ -27,7 +24,7 @@ interface OutcomeData {
   deadline_days: number;
 }
 
-export default function SummaryPage() {
+function SummaryPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const caseId = searchParams.get('case_id');
@@ -316,6 +313,18 @@ export default function SummaryPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SummaryPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    }>
+      <SummaryPageContent />
+    </Suspense>
   );
 }
 
