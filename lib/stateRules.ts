@@ -25,3 +25,16 @@ export const stateRules = {
 export function getStateRules(state: string) {
   return stateRules[state as keyof typeof stateRules] || null;
 }
+
+export function getAvailableStates(): Array<{ code: string; name: string }> {
+  return [
+    { code: 'CA', name: 'California' }
+  ];
+}
+
+export function getStateName(code: string): string {
+  const states: { [key: string]: string } = {
+    CA: 'California'
+  };
+  return states[code] || code;
+}
