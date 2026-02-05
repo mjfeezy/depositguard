@@ -239,12 +239,13 @@ textarea:disabled {
 }
 
 .card-hover:hover {
-  @apply shadow-lg -translate-y-1;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  transform: translateY(-0.25rem);
 }
 
 /* Clickable card press */
 .card-press:active {
-  @apply scale-[0.98];
+  transform: scale(0.98);
   transition: transform 0.1s ease-out;
 }
 
