@@ -265,7 +265,7 @@ function SummaryPageContent() {
         {/* Paywall CTA */}
         <div className="bg-white shadow-sm rounded-lg p-8 text-center hover:shadow-md transition-shadow duration-300">
           <h3 className="text-2xl font-bold text-neutral-900 mb-4">
-            Unlock Your Demand Letter
+            Get Your Demand Letter
           </h3>
           
           <div className="max-w-md mx-auto mb-6">
@@ -285,8 +285,8 @@ function SummaryPageContent() {
           </div>
           
           <div className="mb-6">
-            <p className="text-4xl font-bold text-neutral-900 mb-2">$49</p>
-            <p className="text-neutral-600">One-time payment • Instant access</p>
+            <p className="text-4xl font-bold text-neutral-900 mb-2">$4.99</p>
+            <p className="text-neutral-600">One-time • Instant access</p>
           </div>
           
           <button
@@ -300,7 +300,7 @@ function SummaryPageContent() {
                 Processing...
               </>
             ) : (
-              'Get My Demand Letter'
+              'Get My Letter — $4.99'
             )}
           </button>
           
