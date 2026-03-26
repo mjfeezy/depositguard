@@ -1,415 +1,258 @@
 'use client';
 
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { intakeFormSchema, IntakeFormData } from '@/lib/validation';
-import { getAvailableStates, getStateName } from '@/lib/stateRules';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-// Error icon component for enhanced error display
-function ErrorIcon() {
+type Message = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+function TypingIndicator() {
   return (
-    <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-    </svg>
+    <div className="flex items-end gap-2 mb-4">
+      <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+        <span className="text-white text-xs font-bold">DG</span>
+      </div>
+      <div className="bg-white border border-gray-100 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+        <div className="flex gap-1 items-center h-4">
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ message }: { message: Message }) {
+  const isUser = message.role === 'user';
+  return (
+    <div className={`flex items-end gap-2 mb-4 ${isUser ? 'flex-row-reverse' : ''}`}>
+      {!isUser && (
+        <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 mb-0.5">
+          <span className="text-white text-xs font-bold">DG</span>
+        </div>
+      )}
+      <div
+        className={`max-w-[75%] px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap ${
+          isUser
+            ? 'bg-blue-600 text-white rounded-br-sm'
+            : 'bg-white border border-gray-100 text-gray-800 rounded-bl-sm'
+        }`}
+      >
+        {message.content}
+      </div>
+    </div>
   );
 }
 
 export default function IntakePage() {
   const router = useRouter();
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  
-  const {
-    register,
-    handleSubmit,
-    watch,
-    formState: { errors, isSubmitting }
-  } = useForm<IntakeFormData>({
-    resolver: zodResolver(intakeFormSchema),
-    defaultValues: {
-      state: 'CA',
-      itemization_received: 'no',
-      deduction_type: 'unclear'
-    }
-  });
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [caseReady, setCaseReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const itemizationReceived = watch('itemization_received');
-  const availableStates = getAvailableStates();
-  
-  const onSubmit = async (data: IntakeFormData) => {
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, sending]);
+
+  // Initialize: create case then load opening message
+  useEffect(() => {
+    async function init() {
+      try {
+        // Create a new case
+        const createRes = await fetch('/api/intake', { method: 'POST' });
+        const { case_id } = await createRes.json();
+        if (!case_id) throw new Error('Failed to create case');
+        setCaseId(case_id);
+
+        // Load opening message
+        const chatRes = await fetch(`/api/chat?case_id=${case_id}`);
+        const data = await chatRes.json();
+        setMessages(data.messages || []);
+      } catch (e) {
+        setError('Failed to start your session. Please refresh the page.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
+
+  // Auto-resize textarea
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  };
+
+  const sendMessage = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || !caseId || sending) return;
+
+    setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+    setSending(true);
+
+    // Optimistic update
+    const userMessage: Message = { role: 'user', content: trimmed };
+    setMessages((prev) => [...prev, userMessage]);
+
     try {
-      setSubmitError(null);
-      
-      const response = await fetch('/api/intake', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify({ case_id: caseId, message: trimmed }),
       });
-      
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to submit form');
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send message');
+
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.message }]);
+
+      if (data.case_ready) {
+        setCaseReady(true);
       }
-      
-      if (result.case_id) {
-        router.push(`/summary?case_id=${result.case_id}`);
-      }
-    } catch (error) {
-      console.error('Submission error:', error);
-      setSubmitError(error instanceof Error ? error.message : 'An error occurred. Please try again.');
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: "I hit a snag — can you try sending that again?",
+        },
+      ]);
+    } finally {
+      setSending(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const goToSummary = () => {
+    router.push(`/summary?case_id=${caseId}`);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-4">
+            <span className="text-white font-bold text-lg">DG</span>
+          </div>
+          <p className="text-gray-500 text-sm">Starting your case...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="bg-white rounded-xl shadow-sm p-8 max-w-md w-full text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Security Deposit Questionnaire
-          </h1>
-          <p className="mt-2 text-gray-600">
-            Answer these questions to generate your demand letter
-          </p>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+          <span className="text-white text-sm font-bold">DG</span>
         </div>
-        
-        {/* Progress Indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-center space-x-2 text-sm">
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">
-                1
-              </div>
-              <span className="ml-2 font-medium text-gray-900">Questions</span>
-            </div>
-            <div className="w-16 h-1 bg-gray-200"></div>
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-semibold">
-                2
-              </div>
-              <span className="ml-2 text-gray-500">Summary</span>
-            </div>
-            <div className="w-16 h-1 bg-gray-200"></div>
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-semibold">
-                3
-              </div>
-              <span className="ml-2 text-gray-500">Letter</span>
-            </div>
-          </div>
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">DepositGuard</p>
+          <p className="text-xs text-green-500 font-medium">Online · California Deposit Specialist</p>
         </div>
-        
-        {/* Error Alert - ENHANCED */}
-        {submitError && (
-          <div className="mb-6 flex items-start gap-3 bg-red-50 border border-red-200 rounded-md p-4">
-            <ErrorIcon />
-            <p className="text-sm text-red-800 font-medium">{submitError}</p>
-          </div>
-        )}
-        
-        {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-white shadow-sm rounded-lg p-8 space-y-6">
-          {/* State Selection */}
-          <div>
-            <label htmlFor="state" className="block text-sm font-medium text-gray-700 mb-1">
-              State *
-            </label>
-            <select
-              id="state"
-              {...register('state')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-            >
-              {availableStates.map((state) => (
-                <option key={state.code} value={state.code}>
-                  {state.name}
-                </option>
-              ))}
-            </select>
-            {errors.state && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.state.message}</p>
-              </div>
-            )}
-          </div>
+        <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
+          <div className="w-2 h-2 rounded-full bg-green-400" />
+          Step 1 of 3
+        </div>
+      </div>
 
-          {/* Lease End Date */}
-          <div>
-            <label htmlFor="lease_end_date" className="block text-sm font-medium text-gray-700 mb-1">
-              When did your lease end? *
-            </label>
-            <input
-              id="lease_end_date"
-              type="date"
-              {...register('lease_end_date')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-            />
-            {errors.lease_end_date && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.lease_end_date.message}</p>
-              </div>
-            )}
-            <p className="mt-1 text-xs text-gray-500">The date you moved out or your lease officially ended</p>
-          </div>
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 max-w-2xl mx-auto w-full">
+        {messages.map((msg, i) => (
+          <MessageBubble key={i} message={msg} />
+        ))}
+        {sending && <TypingIndicator />}
 
-          {/* Deposit Amount */}
-          <div>
-            <label htmlFor="deposit_amount" className="block text-sm font-medium text-gray-700 mb-1">
-              Security deposit amount paid *
-            </label>
-            <div className="mt-1 relative rounded-md shadow-sm">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <span className="text-gray-500 sm:text-sm">$</span>
-              </div>
-              <input
-                id="deposit_amount"
-                type="number"
-                step="0.01"
-                {...register('deposit_amount', { valueAsNumber: true })}
-                className="block w-full pl-7 rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                placeholder="2000.00"
-              />
-            </div>
-            {errors.deposit_amount && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.deposit_amount.message}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Amount Returned */}
-          <div>
-            <label htmlFor="amount_returned" className="block text-sm font-medium text-gray-700 mb-1">
-              Amount returned to you *
-            </label>
-            <div className="mt-1 relative rounded-md shadow-sm">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <span className="text-gray-500 sm:text-sm">$</span>
-              </div>
-              <input
-                id="amount_returned"
-                type="number"
-                step="0.01"
-                {...register('amount_returned', { valueAsNumber: true })}
-                className="block w-full pl-7 rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                placeholder="500.00"
-              />
-            </div>
-            {errors.amount_returned && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.amount_returned.message}</p>
-              </div>
-            )}
-            <p className="mt-1 text-xs text-gray-500">Enter 0 if you received nothing back</p>
-          </div>
-
-          {/* Itemization Received - ENHANCED TOUCH TARGETS */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Did you receive an itemized statement of deductions? *
-            </label>
-            <div className="space-y-3">
-              <label className="flex items-center min-h-[44px] cursor-pointer">
-                <input
-                  type="radio"
-                  {...register('itemization_received')}
-                  value="yes"
-                  className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300"
-                />
-                <span className="ml-3 text-sm text-gray-700">Yes, I received an itemized list of deductions</span>
-              </label>
-              <label className="flex items-center min-h-[44px] cursor-pointer">
-                <input
-                  type="radio"
-                  {...register('itemization_received')}
-                  value="no"
-                  className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300"
-                />
-                <span className="ml-3 text-sm text-gray-700">No, I did not receive any itemization</span>
-              </label>
-            </div>
-            {errors.itemization_received && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.itemization_received.message}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Conditional Fields - Only show if itemization received */}
-          {itemizationReceived === 'yes' && (
-            <div className="pl-6 border-l-2 border-blue-200 space-y-6 transition-all">
-              <div>
-                <label htmlFor="itemization_date" className="block text-sm font-medium text-gray-700 mb-1">
-                  When did you receive the itemization? *
-                </label>
-                <input
-                  id="itemization_date"
-                  type="date"
-                  {...register('itemization_date')}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                />
-                {errors.itemization_date && (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                    <ErrorIcon />
-                    <p className="text-sm text-red-800 font-medium">{errors.itemization_date.message}</p>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Were receipts or invoices included? *
-                </label>
-                <div className="space-y-3">
-                  <label className="flex items-center min-h-[44px] cursor-pointer">
-                    <input
-                      type="radio"
-                      {...register('receipts_included')}
-                      value="yes"
-                      className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-sm text-gray-700">Yes, receipts or invoices were included</span>
-                  </label>
-                  <label className="flex items-center min-h-[44px] cursor-pointer">
-                    <input
-                      type="radio"
-                      {...register('receipts_included')}
-                      value="no"
-                      className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-sm text-gray-700">No receipts or invoices</span>
-                  </label>
-                  <label className="flex items-center min-h-[44px] cursor-pointer">
-                    <input
-                      type="radio"
-                      {...register('receipts_included')}
-                      value="not_sure"
-                      className="h-4 w-4 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-3 text-sm text-gray-700">Not sure / unclear</span>
-                  </label>
-                </div>
-                {errors.receipts_included && (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                    <ErrorIcon />
-                    <p className="text-sm text-red-800 font-medium">{errors.receipts_included.message}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Deduction Type */}
-          <div>
-            <label htmlFor="deduction_type" className="block text-sm font-medium text-gray-700 mb-1">
-              What were the deductions for? *
-            </label>
-            <select
-              id="deduction_type"
-              {...register('deduction_type')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-            >
-              <option value="wear_tear">Normal wear and tear</option>
-              <option value="cleaning_repairs">Cleaning and repairs</option>
-              <option value="unclear">Not sure / Unclear</option>
-            </select>
-            {errors.deduction_type && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.deduction_type.message}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Landlord Email */}
-          <div>
-            <label htmlFor="landlord_email" className="block text-sm font-medium text-gray-700 mb-1">
-              Landlord's email address *
-            </label>
-            <input
-              id="landlord_email"
-              type="email"
-              {...register('landlord_email')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              placeholder="landlord@example.com"
-            />
-            {errors.landlord_email && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.landlord_email.message}</p>
-              </div>
-            )}
-            <p className="mt-1 text-xs text-gray-500">This will appear as the "send to" address in your letter</p>
-          </div>
-
-          {/* Tenant Name */}
-          <div>
-            <label htmlFor="tenant_name" className="block text-sm font-medium text-gray-700 mb-1">
-              Your full name *
-            </label>
-            <input
-              id="tenant_name"
-              type="text"
-              {...register('tenant_name')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              placeholder="John Doe"
-            />
-            {errors.tenant_name && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.tenant_name.message}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Tenant Address (Optional) */}
-          <div>
-            <label htmlFor="tenant_address" className="block text-sm font-medium text-gray-700 mb-1">
-              Your current mailing address <span className="text-gray-500 font-normal">(optional)</span>
-            </label>
-            <input
-              id="tenant_address"
-              type="text"
-              {...register('tenant_address')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              placeholder="123 Main St, City, State 12345"
-            />
-            {errors.tenant_address && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md p-3 mt-2">
-                <ErrorIcon />
-                <p className="text-sm text-red-800 font-medium">{errors.tenant_address.message}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Submit Button */}
-          <div className="pt-4">
+        {/* Case Ready CTA */}
+        {caseReady && !sending && (
+          <div className="mt-4 flex justify-center">
             <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-h-[44px]"
+              onClick={goToSummary}
+              className="bg-blue-600 text-white px-8 py-3.5 rounded-xl font-semibold hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-200 flex items-center gap-2"
             >
-              {isSubmitting ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Processing...
-                </>
-              ) : (
-                'Continue to Summary'
-              )}
+              View My Case Analysis
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+              </svg>
             </button>
           </div>
-        </form>
+        )}
+
+        <div ref={messagesEndRef} />
       </div>
+
+      {/* Input area */}
+      {!caseReady && (
+        <div className="bg-white border-t border-gray-200 px-4 py-3">
+          <div className="max-w-2xl mx-auto flex items-end gap-3">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              rows={1}
+              disabled={sending}
+              className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 transition-all"
+              style={{ minHeight: '44px', maxHeight: '120px' }}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || sending}
+              className="w-11 h-11 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 flex items-center justify-center flex-shrink-0 transition-colors active:scale-95"
+            >
+              <svg
+                className={`w-5 h-5 ${!input.trim() || sending ? 'text-gray-400' : 'text-white'}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.269 20.876L5.999 12zm0 0h7.5" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-center text-xs text-gray-400 mt-2">
+            Press Enter to send · Shift+Enter for new line
+          </p>
+        </div>
+      )}
     </div>
   );
 }
