@@ -1,160 +1,165 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStateRules } from '@/lib/stateRules';
-import { formatCurrency } from '@/lib/rules';
+import { supabaseAdmin } from '@/lib/supabase';
 
-// In-memory storage (same as intake route)
-// In production, use Supabase or your database
-const cases = new Map<string, any>();
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-// This should be shared with intake/route.ts in production
-// For now, we're duplicating to make it work
-function getCaseData(caseId: string) {
-  return cases.get(caseId);
-}
+const LETTER_SYSTEM_PROMPT = `You are a legal document specialist generating California security deposit demand letters. Write professional, legally precise demand letters based on California Civil Code §1950.5.
 
-function generateDemandLetter(caseData: any, outcome: any): string {
-  const today = new Date().toLocaleDateString('en-US', { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
-  });
+Guidelines:
+- Formal, professional tone (not aggressive, not casual)
+- Reference specific California statutes
+- Cite all violations found
+- Calculate exact amounts owed including potential penalties
+- Include a specific payment deadline (10 days)
+- End with clear escalation warning (small claims court)
+- Do not fabricate any facts not provided
+- Format as a proper formal letter with today's date
 
-  return `${today}
-
-${caseData.tenant_name}
-${caseData.tenant_address}
-
-${caseData.landlord_email}
-
-Re: Demand for Return of Security Deposit
-
-Dear Landlord,
-
-I am writing to formally demand the return of my security deposit in the amount of ${formatCurrency(caseData.deposit_amount)}.
-
-LEASE DETAILS:
-- Property Address: ${caseData.tenant_address}
-- Lease End Date: ${new Date(caseData.lease_end_date).toLocaleDateString('en-US')}
-- Security Deposit: ${formatCurrency(caseData.deposit_amount)}
-- Amount Returned: ${formatCurrency(caseData.amount_returned || 0)}
-
-CALIFORNIA LAW REQUIREMENTS:
-Under California Civil Code Section 1950.5, you were required to:
-1. Return my security deposit within 21 days of move-out
-2. Provide an itemized statement of any deductions
-3. Include receipts for repairs exceeding $126
-
-${caseData.itemization_received === 'yes' 
-  ? `I received an itemization on ${new Date(caseData.itemization_date).toLocaleDateString('en-US')}, however, `
-  : 'I have not received the required itemization. '
-}${getViolationText(caseData)}
-
-DEMAND:
-I demand the immediate return of ${formatCurrency(outcome.amount_owed)} within 10 days of receipt of this letter.
-
-If you fail to comply, I will pursue all available legal remedies, including filing a claim in small claims court for ${formatCurrency(outcome.total_claim)}, which includes the security deposit amount plus statutory penalties of up to ${formatCurrency(outcome.penalty_amount)}.
-
-Please send payment to:
-${caseData.tenant_name}
-${caseData.tenant_address}
-
-I expect your prompt attention to this matter.
-
-Sincerely,
-${caseData.tenant_name}`;
-}
-
-function getViolationText(caseData: any): string {
-  if (caseData.deduction_type === 'unclear') {
-    return 'the deductions are unclear and not properly documented.';
-  } else if (caseData.deduction_type === 'excessive') {
-    return 'the deductions appear excessive and beyond normal wear and tear.';
-  } else if (caseData.deduction_type === 'normal_wear') {
-    return 'the deductions are for normal wear and tear, which is not permissible under California law.';
-  } else if (caseData.deduction_type === 'fraudulent') {
-    return 'the deductions appear to be fraudulent.';
-  }
-  return 'the itemization does not comply with California law.';
-}
-
-function calculateOutcome(caseData: any) {
-  const depositAmount = caseData.deposit_amount || 0;
-  const amountReturned = caseData.amount_returned || 0;
-  const depositWithheld = depositAmount - amountReturned;
-  
-  // Calculate days since lease end
-  const leaseEndDate = new Date(caseData.lease_end_date);
-  const today = new Date();
-  const daysLate = Math.floor((today.getTime() - leaseEndDate.getTime()) / (1000 * 60 * 60 * 24)) - 21;
-  
-  // Bad faith penalty (2x deposit if over 21 days late and improper deductions)
-  let penaltyAmount = 0;
-  if (daysLate > 0 && (caseData.itemization_received === 'no' || caseData.deduction_type !== 'unclear')) {
-    penaltyAmount = depositAmount * 2;
-  }
-  
-  const totalClaim = depositWithheld + penaltyAmount;
-  
-  return {
-    deposit_amount: depositAmount,
-    amount_returned: amountReturned,
-    deposit_withheld: depositWithheld,
-    penalty_amount: penaltyAmount,
-    total_claim: totalClaim,
-    amount_owed: depositWithheld,
-    days_late: Math.max(0, daysLate),
-  };
-}
+Return ONLY a JSON object, no other text, in this exact format:
+{
+  "subject": "Demand for Return of Security Deposit — [Property Address or Tenant Name]",
+  "body": "Full letter text here with proper line breaks using \\n",
+  "send_to_email": "landlord email here",
+  "applicable_statutes": ["California Civil Code §1950.5", "..."],
+  "outcome_type": "A|B|C|D|E",
+  "explanation": "1-2 sentence plain English explanation of the strongest argument",
+  "deposit_withheld": 0,
+  "penalty_amount": 0
+}`;
 
 export async function POST(request: NextRequest) {
   try {
     const { case_id } = await request.json();
 
     if (!case_id) {
-      return NextResponse.json(
-        { error: 'Case ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'case_id is required' }, { status: 400 });
     }
 
-    // Get case data (in production, fetch from database)
-    const caseData = getCaseData(case_id);
+    // Fetch case from Supabase
+    const { data: caseRow, error: caseError } = await supabaseAdmin
+      .from('cases')
+      .select('*')
+      .eq('id', case_id)
+      .single();
 
-    if (!caseData) {
-      return NextResponse.json(
-        { error: 'Case not found' },
-        { status: 404 }
-      );
+    if (caseError || !caseRow) {
+      return NextResponse.json({ error: 'Case not found' }, { status: 404 });
     }
 
-    // Check if payment was completed (in production, verify via Stripe)
-    if (caseData.status !== 'paid') {
-      return NextResponse.json(
-        { error: 'Payment required to generate letter' },
-        { status: 403 }
-      );
+    // Payment gate
+    if (caseRow.payment_status !== 'paid') {
+      return NextResponse.json({ error: 'Payment required' }, { status: 403 });
     }
 
-    // Get state-specific rules
-    const stateRules = getStateRules(caseData.state || 'CA');
+    // Return cached letter if already generated
+    if (caseRow.generated_letter) {
+      const stateInfo = { state_name: 'California', itemization_deadline: 21 };
+      return NextResponse.json({
+        email: caseRow.generated_letter,
+        outcome: caseRow.generated_letter,
+        state_info: stateInfo,
+      });
+    }
 
-    // Calculate outcome
-    const outcome = calculateOutcome(caseData);
-
-    // Generate demand letter
-    const email = generateDemandLetter(caseData, outcome);
-
-    return NextResponse.json({
-      email,
-      outcome,
-      state_info: stateRules,
+    const caseData = caseRow.case_data;
+    const today = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
     });
 
+    // Build the prompt with all case facts
+    const casePrompt = `Generate a demand letter for this California security deposit case. Today's date is ${today}.
+
+CASE FACTS:
+- Tenant: ${caseData.tenant_name || '[Tenant Name]'}
+- Tenant Address: ${caseData.tenant_address || '[Tenant Address]'}
+- Property Address: ${caseData.property_address || '[Property Address]'}
+- Landlord Email: ${caseData.landlord_email || '[Landlord Email]'}
+- Landlord Name: ${caseData.landlord_name || 'Landlord'}
+- Lease End Date: ${caseData.lease_end_date || '[Date]'}
+- Security Deposit Paid: $${caseData.deposit_amount || 0}
+- Amount Returned: $${caseData.amount_returned || 0}
+- Amount Withheld: $${(caseData.deposit_amount || 0) - (caseData.amount_returned || 0)}
+- Itemization Received: ${caseData.itemization_received ? 'Yes' : 'No'}
+${caseData.itemization_date ? `- Itemization Date: ${caseData.itemization_date}` : ''}
+${caseData.receipts_included !== null ? `- Receipts Included: ${caseData.receipts_included ? 'Yes' : 'No'}` : ''}
+${caseData.tenancy_duration_months ? `- Tenancy Duration: ${caseData.tenancy_duration_months} months` : ''}
+
+CASE TYPE: ${caseData.outcome_type || 'E'}
+CASE ANALYSIS: ${caseData.analysis_summary || 'Disputed security deposit deductions'}
+
+VIOLATIONS FOUND:
+${(caseData.leverage_points || []).map((p: string) => `- ${p}`).join('\n') || '- Improper deductions from security deposit'}
+
+DEDUCTIONS DISPUTED:
+${
+  (caseData.deductions || [])
+    .map(
+      (d: any) =>
+        `- ${d.category}: $${d.amount} charged${d.fair_amount !== undefined ? `, fair amount: $${d.fair_amount}` : ''}`
+    )
+    .join('\n') || '- Full deposit withheld without proper justification'
+}
+
+Calculate:
+- The exact amount owed back to tenant (deposit withheld)
+- Potential penalty (up to 2x withheld amount for bad faith)
+- Total claim amount`;
+
+    const anthropicResponse = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5',
+        max_tokens: 2048,
+        system: LETTER_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: casePrompt }],
+      }),
+    });
+
+    if (!anthropicResponse.ok) {
+      const err = await anthropicResponse.text();
+      console.error('Anthropic letter error:', err);
+      return NextResponse.json({ error: 'Failed to generate letter' }, { status: 500 });
+    }
+
+    const anthropicData = await anthropicResponse.json();
+    const rawText = anthropicData.content?.[0]?.text || '';
+
+    // Parse JSON response
+    let letterData;
+    try {
+      const cleaned = rawText.replace(/```json\n?|\n?```/g, '').trim();
+      letterData = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse letter JSON:', rawText);
+      return NextResponse.json({ error: 'Failed to parse generated letter' }, { status: 500 });
+    }
+
+    // Cache the letter
+    await supabaseAdmin
+      .from('cases')
+      .update({ generated_letter: letterData })
+      .eq('id', case_id);
+
+    const stateInfo = {
+      state_name: 'California',
+      itemization_deadline: 21,
+      mailing_requirements: 'Send via email and certified mail (return receipt requested) for best legal standing.',
+    };
+
+    return NextResponse.json({
+      email: letterData,
+      outcome: letterData,
+      state_info: stateInfo,
+    });
   } catch (error) {
     console.error('Generate email error:', error);
-    return NextResponse.json(
-      { error: 'Failed to generate email' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate letter' }, { status: 500 });
   }
 }
