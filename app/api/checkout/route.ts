@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
               name: 'DepositGuard — Demand Letter',
               description: 'AI-generated demand letter based on California Civil Code §1950.5',
             },
-            unit_amount: 4900, // $49.00
+            unit_amount: 499, // $4.99
           },
           quantity: 1,
         },
