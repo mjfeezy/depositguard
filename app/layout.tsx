@@ -65,7 +65,7 @@ function Header() {
               href="/intake"
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow transition-all"
             >
-              Start Now — $49
+              Get Started
             </Link>
           </div>
 
@@ -127,7 +127,7 @@ function Header() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="block mt-4 px-4 py-3 text-center border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors min-h-[44px] flex items-center justify-center"
               >
-                Start Now — $49
+                Get Started
               </Link>
             </div>
           </div>
@@ -212,7 +212,7 @@ function Footer() {
                 <svg className="w-4 h-4 text-green-600 mr-1" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                 </svg>
-                Secure Payment
+                Get Started
               </div>
               
               <div className="flex items-center text-xs text-gray-600">
